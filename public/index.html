@@ -1,149 +1,106 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Hateem Media Control</title>
-  <style>
-    body{
-      margin:0;
-      background:#0f0f0f;
-      color:white;
-      font-family:Arial;
-      text-align:center;
-    }
-
-    h2{
-      margin-top:20px;
-    }
-
-    #video-container{
-      margin-top:20px;
-    }
-
-    video{
-      width:500px;
-      max-width:95%;
-      border-radius:10px;
-      border:3px solid cyan;
-    }
-
-    .controls{
-      margin-top:20px;
-    }
-
-    button{
-      padding:10px 20px;
-      margin:5px;
-      border:none;
-      border-radius:20px;
-      font-weight:bold;
-      cursor:pointer;
-      background:#00cccc;
-      color:black;
-    }
-
-    button.active{
-      background:#ff4444;
-      color:white;
-    }
-
-    .status{
-      margin-top:15px;
-      font-size:18px;
-    }
-  </style>
+    <title>TalkHub - Hateem</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; }
+        #video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 20px; }
+        video { width: 100%; border-radius: 10px; border: 2px solid cyan; background: black; }
+        .controls { padding: 20px; background: #222; position: sticky; top: 0; z-index: 100; }
+        button { padding: 10px 20px; margin: 5px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-on { background: cyan; }
+        .btn-off { background: #ff4444; color: white; }
+    </style>
 </head>
 <body>
-
-<h2>Hateem Camera & Mic Control</h2>
-
-<div class="controls">
-  <button id="camBtn" onclick="toggleCamera()">Turn Camera Off</button>
-  <button id="micBtn" onclick="toggleMic()">Mute Mic</button>
-  <button onclick="shareScreen()">Share Screen</button>
-</div>
-
-<div class="status">
-  <div id="camStatus">Camera: ON 🟢</div>
-  <div id="micStatus">Mic: ON 🟢</div>
-</div>
-
-<div id="video-container"></div>
+    <div class="controls">
+        <h2>TalkHub 🚀</h2>
+        <button id="cam-btn" class="btn-on" onclick="toggleVideo()">🎥 Cam: ON</button>
+        <button id="mic-btn" class="btn-on" onclick="toggleAudio()">🎤 Mic: ON</button>
+        <button class="btn-on" style="background:orange" onclick="shareScreen()">🖥 Share Screen</button>
+    </div>
+    <div id="video-grid"></div>
 
 <script>
+    const socket = io('/');
+    const videoGrid = document.getElementById('video-grid');
+    const myPeer = new Peer(); // Handles the video connections
+    const myVideo = document.createElement('video');
+    myVideo.muted = true; // Mute yourself so you don't hear your own echo
+    const peers = {};
+    let myStream;
 
-let localStream;
-let videoElement;
-let camOn = true;
-let micOn = true;
+    // 1. Get Camera and Mic
+    navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+    }).then(stream => {
+        myStream = stream;
+        addVideoStream(myVideo, stream);
 
-async function startMedia(){
-  try{
-    localStream = await navigator.mediaDevices.getUserMedia({
-      video:true,
-      audio:true
+        // 2. Answer incoming calls
+        myPeer.on('call', call => {
+            call.answer(stream);
+            const video = document.createElement('video');
+            call.on('stream', userVideoStream => {
+                addVideoStream(video, userVideoStream);
+            });
+        });
+
+        // 3. Listen for new users connecting
+        socket.on('user-connected', userId => {
+            connectToNewUser(userId, stream);
+        });
     });
 
-    videoElement = document.createElement("video");
-    videoElement.srcObject = localStream;
-    videoElement.autoplay = true;
-    videoElement.muted = true; // prevent echo
-
-    document.getElementById("video-container").appendChild(videoElement);
-
-  }catch(err){
-    alert("Permission denied or device not found");
-  }
-}
-
-function toggleCamera(){
-  const track = localStream.getVideoTracks()[0];
-  camOn = !camOn;
-  track.enabled = camOn;
-
-  document.getElementById("camStatus").innerText =
-    camOn ? "Camera: ON 🟢" : "Camera: OFF 🔴";
-
-  document.getElementById("camBtn").innerText =
-    camOn ? "Turn Camera Off" : "Turn Camera On";
-
-  document.getElementById("camBtn").classList.toggle("active", !camOn);
-}
-
-function toggleMic(){
-  const track = localStream.getAudioTracks()[0];
-  micOn = !micOn;
-  track.enabled = micOn;
-
-  document.getElementById("micStatus").innerText =
-    micOn ? "Mic: ON 🟢" : "Mic: OFF 🔴";
-
-  document.getElementById("micBtn").innerText =
-    micOn ? "Mute Mic" : "Unmute Mic";
-
-  document.getElementById("micBtn").classList.toggle("active", !micOn);
-}
-
-async function shareScreen(){
-  try{
-    const screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video:true
+    // 4. Handle user disconnecting
+    socket.on('user-disconnected', userId => {
+        if (peers[userId]) peers[userId].close();
     });
 
-    videoElement.srcObject = screenStream;
+    // 5. Tell server we joined
+    myPeer.on('open', id => {
+        socket.emit('join-room', 'hateem-room', id);
+    });
 
-    // when screen share stops, return to camera
-    screenStream.getVideoTracks()[0].onended = () => {
-      videoElement.srcObject = localStream;
-    };
+    function connectToNewUser(userId, stream) {
+        const call = myPeer.call(userId, stream);
+        const video = document.createElement('video');
+        call.on('stream', userVideoStream => {
+            addVideoStream(video, userVideoStream);
+        });
+        call.on('close', () => { video.remove(); });
+        peers[userId] = call;
+    }
 
-  }catch(err){
-    alert("Screen share cancelled");
-  }
-}
+    function addVideoStream(video, stream) {
+        video.srcObject = stream;
+        video.addEventListener('loadedmetadata', () => { video.play(); });
+        videoGrid.append(video);
+    }
 
-startMedia();
+    // --- Controls ---
+    function toggleVideo() {
+        const enabled = myStream.getVideoTracks()[0].enabled;
+        myStream.getVideoTracks()[0].enabled = !enabled;
+        document.getElementById('cam-btn').innerText = !enabled ? "🎥 Cam: ON" : "🎥 Cam: OFF";
+        document.getElementById('cam-btn').className = !enabled ? "btn-on" : "btn-off";
+    }
 
+    function toggleAudio() {
+        const enabled = myStream.getAudioTracks()[0].enabled;
+        myStream.getAudioTracks()[0].enabled = !enabled;
+        document.getElementById('mic-btn').innerText = !enabled ? "🎤 Mic: ON" : "🎤 Mic: OFF";
+        document.getElementById('mic-btn').className = !enabled ? "btn-on" : "btn-off";
+    }
+
+    async function shareScreen() {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        myVideo.srcObject = screenStream;
+        // In a real app, you'd update Peer connections here too!
+    }
 </script>
-
 </body>
 </html>
