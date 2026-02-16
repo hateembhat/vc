@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Hateem Media Control</title>
+  <style>
+    body{
+      margin:0;
+      background:#0f0f0f;
+      color:white;
+      font-family:Arial;
+      text-align:center;
+    }
+
+    h2{
+      margin-top:20px;
+    }
+
+    #video-container{
+      margin-top:20px;
+    }
+
+    video{
+      width:500px;
+      max-width:95%;
+      border-radius:10px;
+      border:3px solid cyan;
+    }
+
+    .controls{
+      margin-top:20px;
+    }
+
+    button{
+      padding:10px 20px;
+      margin:5px;
+      border:none;
+      border-radius:20px;
+      font-weight:bold;
+      cursor:pointer;
+      background:#00cccc;
+      color:black;
+    }
+
+    button.active{
+      background:#ff4444;
+      color:white;
+    }
+
+    .status{
+      margin-top:15px;
+      font-size:18px;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Hateem Camera & Mic Control</h2>
+
+<div class="controls">
+  <button id="camBtn" onclick="toggleCamera()">Turn Camera Off</button>
+  <button id="micBtn" onclick="toggleMic()">Mute Mic</button>
+  <button onclick="shareScreen()">Share Screen</button>
+</div>
+
+<div class="status">
+  <div id="camStatus">Camera: ON 🟢</div>
+  <div id="micStatus">Mic: ON 🟢</div>
+</div>
+
+<div id="video-container"></div>
+
+<script>
+
+let localStream;
+let videoElement;
+let camOn = true;
+let micOn = true;
+
+async function startMedia(){
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video:true,
+      audio:true
+    });
+
+    videoElement = document.createElement("video");
+    videoElement.srcObject = localStream;
+    videoElement.autoplay = true;
+    videoElement.muted = true; // prevent echo
+
+    document.getElementById("video-container").appendChild(videoElement);
+
+  }catch(err){
+    alert("Permission denied or device not found");
+  }
+}
+
+function toggleCamera(){
+  const track = localStream.getVideoTracks()[0];
+  camOn = !camOn;
+  track.enabled = camOn;
+
+  document.getElementById("camStatus").innerText =
+    camOn ? "Camera: ON 🟢" : "Camera: OFF 🔴";
+
+  document.getElementById("camBtn").innerText =
+    camOn ? "Turn Camera Off" : "Turn Camera On";
+
+  document.getElementById("camBtn").classList.toggle("active", !camOn);
+}
+
+function toggleMic(){
+  const track = localStream.getAudioTracks()[0];
+  micOn = !micOn;
+  track.enabled = micOn;
+
+  document.getElementById("micStatus").innerText =
+    micOn ? "Mic: ON 🟢" : "Mic: OFF 🔴";
+
+  document.getElementById("micBtn").innerText =
+    micOn ? "Mute Mic" : "Unmute Mic";
+
+  document.getElementById("micBtn").classList.toggle("active", !micOn);
+}
+
+async function shareScreen(){
+  try{
+    const screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video:true
+    });
+
+    videoElement.srcObject = screenStream;
+
+    // when screen share stops, return to camera
+    screenStream.getVideoTracks()[0].onended = () => {
+      videoElement.srcObject = localStream;
+    };
+
+  }catch(err){
+    alert("Screen share cancelled");
+  }
+}
+
+startMedia();
+
+</script>
+
+</body>
+</html>
